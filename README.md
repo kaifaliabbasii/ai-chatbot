@@ -62,4 +62,6 @@ The API key lives only on the server in `.env` (ignored by git), so it is never 
 - Trim history by token count instead of message count
 - Add rate limiting and deploy online
 
-## Screenshot
+## Screenshots
+![Chat 1](chat1.png)
+![Chat 2](chat2.png)
