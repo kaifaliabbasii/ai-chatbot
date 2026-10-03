@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AI Chatbot</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f3f4f6; height: 100vh; display: flex; justify-content: center; }
+    .app { width: 100%; max-width: 760px; display: flex; flex-direction: column; background: #fff; box-shadow: 0 0 20px rgba(0,0,0,.08); }
+    header { padding: 14px 18px; background: #4f46e5; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+    header h1 { font-size: 18px; margin: 0; }
+    header button { background: rgba(255,255,255,.2); color: #fff; border: 0; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+    #chat { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height: 1.5; word-wrap: break-word; }
+    .msg p { margin: 0 0 8px; } .msg p:last-child { margin: 0; }
+    .msg pre { background: #1f2937; color: #f9fafb; padding: 10px; border-radius: 8px; overflow-x: auto; }
+    .user { align-self: flex-end; background: #4f46e5; color: #fff; }
+    .bot { align-self: flex-start; background: #eef0f4; }
+    .error { align-self: flex-start; background: #fee2e2; color: #991b1b; }
+    .loading { color: #6b7280; font-style: italic; }
+    form { display: flex; gap: 8px; padding: 14px; border-top: 1px solid #e5e7eb; }
+    input { flex: 1; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; }
+    form button { padding: 0 20px; background: #4f46e5; color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-size: 15px; }
+    form button:disabled { background: #a5b4fc; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🤖 AI Chatbot</h1>
+      <button id="clear" type="button">Clear chat</button>
+    </header>
+    <div id="chat"></div>
+    <form id="form">
+      <input id="input" placeholder="Type your message..." autocomplete="off" autofocus />
+      <button id="send" type="submit">Send</button>
+    </form>
+  </div>
+
+<script>
+  const chat = document.getElementById("chat");
+  const form = document.getElementById("form");
+  const input = document.getElementById("input");
+  const sendBtn = document.getElementById("send");
+
+  // Conversation history (sent to the server each time so the AI has context)
+  let history = [];
+
+  function addMessage(text, cls, asMarkdown = false) {
+    const div = document.createElement("div");
+    div.className = "msg " + cls;
+    if (asMarkdown) {
+      div.innerHTML = DOMPurify.sanitize(marked.parse(text)); // render Markdown safely
+    } else {
+      div.textContent = text;
+    }
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
+
+  addMessage("Hi! Ask me anything.", "bot");
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    addMessage(text, "user");
+    history.push({ role: "user", content: text });
+    input.value = "";
+
+    // Loading state
+    sendBtn.disabled = true;
+    const loading = addMessage("Thinking...", "bot loading");
+
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const data = await res.json();
+      loading.remove();
+
+      if (!res.ok) throw new Error(data.error || "Something went wrong");
+
+      history.push({ role: "assistant", content: data.reply });
+      addMessage(data.reply, "bot", true);
+    } catch (err) {
+      loading.remove();
+      history.pop(); // remove the failed user message so the user can retry
+      addMessage("⚠️ " + err.message, "error");
+    } finally {
+      sendBtn.disabled = false;
+      input.focus();
+    }
+  });
+
+  document.getElementById("clear").addEventListener("click", () => {
+    history = [];
+    chat.innerHTML = "";
+    addMessage("Chat cleared. Ask me anything!", "bot");
+  });
+</script>
+</body>
+</html>
