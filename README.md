@@ -63,4 +63,3 @@ The API key lives only on the server in `.env` (ignored by git), so it is never 
 - Add rate limiting and deploy online
 
 ## Screenshot
-![demo](screenshot.png)
