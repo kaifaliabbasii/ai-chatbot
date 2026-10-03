@@ -3,26 +3,36 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>AI Chatbot</title>
+  <title>CodeBuddy - AI Chatbot</title>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, sans-serif; background: #f3f4f6; height: 100vh; display: flex; justify-content: center; }
-    .app { width: 100%; max-width: 760px; display: flex; flex-direction: column; background: #fff; box-shadow: 0 0 20px rgba(0,0,0,.08); }
-    header { padding: 14px 18px; background: #4f46e5; color: #fff; display: flex; justify-content: space-between; align-items: center; }
+    body { margin: 0; font-family: system-ui, sans-serif; background: #f3f4f6; height: 100vh; height: 100dvh; display: flex; justify-content: center; }
+    .app { width: 100%; max-width: 780px; display: flex; flex-direction: column; background: #fff; box-shadow: 0 0 20px rgba(0,0,0,.08); }
+    header { padding: 14px 18px; background: #4f46e5; color: #fff; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
     header h1 { font-size: 18px; margin: 0; }
-    header button { background: rgba(255,255,255,.2); color: #fff; border: 0; padding: 6px 12px; border-radius: 6px; cursor: pointer; }
+    header small { opacity: .85; }
+    header button { background: rgba(255,255,255,.2); color: #fff; border: 0; padding: 7px 12px; border-radius: 6px; cursor: pointer; }
+    header button:hover { background: rgba(255,255,255,.35); }
     #chat { flex: 1; overflow-y: auto; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
     .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height: 1.5; word-wrap: break-word; }
     .msg p { margin: 0 0 8px; } .msg p:last-child { margin: 0; }
     .msg pre { background: #1f2937; color: #f9fafb; padding: 10px; border-radius: 8px; overflow-x: auto; }
-    .user { align-self: flex-end; background: #4f46e5; color: #fff; }
+    .msg code { font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+    .user { align-self: flex-end; background: #4f46e5; color: #fff; white-space: pre-wrap; }
     .bot { align-self: flex-start; background: #eef0f4; }
     .error { align-self: flex-start; background: #fee2e2; color: #991b1b; }
     .loading { color: #6b7280; font-style: italic; }
+    #chips { padding: 0 18px 10px; display: flex; flex-wrap: wrap; gap: 8px; }
+    #chips button { background: #eef2ff; color: #3730a3; border: 1px solid #c7d2fe; border-radius: 999px; padding: 7px 12px; cursor: pointer; font-size: 13px; }
+    #chips button:hover { background: #e0e7ff; }
     form { display: flex; gap: 8px; padding: 14px; border-top: 1px solid #e5e7eb; }
-    input { flex: 1; padding: 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; }
+    .field { flex: 1; position: relative; }
+    input { width: 100%; padding: 12px 70px 12px 12px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 15px; }
+    input:disabled { background: #f3f4f6; }
+    #counter { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-size: 11px; color: #9ca3af; }
+    #counter.warn { color: #dc2626; }
     form button { padding: 0 20px; background: #4f46e5; color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-size: 15px; }
     form button:disabled { background: #a5b4fc; cursor: not-allowed; }
   </style>
@@ -30,29 +40,66 @@
 <body>
   <div class="app">
     <header>
-      <h1>🤖 AI Chatbot</h1>
+      <div>
+        <h1>🤖 CodeBuddy</h1>
+        <small>Your friendly AI helper for learning to code</small>
+      </div>
       <button id="clear" type="button">Clear chat</button>
     </header>
-    <div id="chat"></div>
+
+    <div id="chat" aria-live="polite"></div>
+
+    <div id="chips">
+      <button type="button">Explain what an API is</button>
+      <button type="button">What is a system prompt?</button>
+      <button type="button">Show a Python function example</button>
+    </div>
+
     <form id="form">
-      <input id="input" placeholder="Type your message..." autocomplete="off" autofocus />
+      <div class="field">
+        <input id="input" placeholder="Type your message..." autocomplete="off" maxlength="2000" autofocus />
+        <span id="counter">0/2000</span>
+      </div>
       <button id="send" type="submit">Send</button>
     </form>
   </div>
 
 <script>
+  const MAX_CHARS = 2000;           // keep in sync with MAX_MESSAGE_CHARS on the server
+  const STORAGE_KEY = "chatbot_history_v1";
+
   const chat = document.getElementById("chat");
   const form = document.getElementById("form");
   const input = document.getElementById("input");
   const sendBtn = document.getElementById("send");
+  const counter = document.getElementById("counter");
+  const chips = document.getElementById("chips");
 
-  // Conversation history (sent to the server each time so the AI has context)
-  let history = [];
+  // Conversation history (sent to the server every time so the AI has context)
+  let history = loadHistory();
+  let busy = false;
 
+  // ---- Saving the chat in the browser so it survives a page refresh ----
+  function loadHistory() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
+      return Array.isArray(saved) ? saved : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveHistory() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    } catch (e) { /* storage may be blocked, the chat still works */ }
+  }
+
+  // ---- Showing messages ----
   function addMessage(text, cls, asMarkdown = false) {
     const div = document.createElement("div");
     div.className = "msg " + cls;
-    if (asMarkdown) {
+    const canRender = typeof marked !== "undefined" && typeof DOMPurify !== "undefined";
+    if (asMarkdown && canRender) {
       div.innerHTML = DOMPurify.sanitize(marked.parse(text)); // render Markdown safely
     } else {
       div.textContent = text;
@@ -62,20 +109,47 @@
     return div;
   }
 
-  addMessage("Hi! Ask me anything.", "bot");
+  function showGreeting() {
+    addMessage("Hi! I'm CodeBuddy 👋 Ask me anything about coding or AI.", "bot");
+  }
 
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
+  function renderSavedChat() {
+    chat.innerHTML = "";
+    showGreeting();
+    history.forEach((m) => addMessage(m.content, m.role === "user" ? "user" : "bot", m.role === "assistant"));
+    chips.style.display = history.length ? "none" : "flex";
+  }
 
-    addMessage(text, "user");
+  function setBusy(state) {
+    busy = state;
+    sendBtn.disabled = state;
+    input.disabled = state;
+    if (!state) input.focus();
+  }
+
+  function updateCounter() {
+    counter.textContent = input.value.length + "/" + MAX_CHARS;
+    counter.classList.toggle("warn", input.value.length > MAX_CHARS * 0.9);
+  }
+
+  // ---- Sending a message ----
+  async function sendMessage(text) {
+    text = text.trim();
+    if (!text || busy) return;
+    if (text.length > MAX_CHARS) {
+      addMessage("⚠️ Your message is too long (maximum " + MAX_CHARS + " characters).", "error");
+      return;
+    }
+
+    chat.querySelectorAll(".error").forEach((e) => e.remove()); // remove old errors
+    chips.style.display = "none";
+    const userDiv = addMessage(text, "user");
     history.push({ role: "user", content: text });
     input.value = "";
+    updateCounter();
 
-    // Loading state
-    sendBtn.disabled = true;
-    const loading = addMessage("Thinking...", "bot loading");
+    setBusy(true);
+    const loading = addMessage("Thinking...", "bot loading"); // loading state
 
     try {
       const res = await fetch("/chat", {
@@ -83,28 +157,51 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messages: history }),
       });
-      const data = await res.json();
+
+      let data = {};
+      try { data = await res.json(); } catch (e) { /* server did not send JSON */ }
       loading.remove();
 
-      if (!res.ok) throw new Error(data.error || "Something went wrong");
+      if (!res.ok) throw new Error(data.error || "Server error (" + res.status + ")");
 
       history.push({ role: "assistant", content: data.reply });
       addMessage(data.reply, "bot", true);
+      saveHistory();
     } catch (err) {
       loading.remove();
-      history.pop(); // remove the failed user message so the user can retry
-      addMessage("⚠️ " + err.message, "error");
+      history.pop();          // remove the failed user message from the history
+      userDiv.remove();       // and from the screen
+      input.value = text;     // put the text back so the user can try again
+      updateCounter();
+      const msg = err.message === "Failed to fetch"
+        ? "Cannot reach the server. Is it running?"
+        : err.message;
+      addMessage("⚠️ " + msg, "error");
     } finally {
-      sendBtn.disabled = false;
-      input.focus();
+      setBusy(false);
     }
+  }
+
+  form.addEventListener("submit", (e) => {
+    e.preventDefault();
+    sendMessage(input.value);
+  });
+
+  input.addEventListener("input", updateCounter);
+
+  chips.querySelectorAll("button").forEach((b) => {
+    b.addEventListener("click", () => sendMessage(b.textContent));
   });
 
   document.getElementById("clear").addEventListener("click", () => {
+    if (busy) return;
     history = [];
-    chat.innerHTML = "";
-    addMessage("Chat cleared. Ask me anything!", "bot");
+    saveHistory();
+    renderSavedChat();
   });
+
+  renderSavedChat();
+  updateCounter();
 </script>
 </body>
 </html>
