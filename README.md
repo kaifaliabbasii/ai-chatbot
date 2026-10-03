@@ -137,3 +137,4 @@ requirements-dev.txt   Libraries needed to run the tests
 ## Screenshots
 ![Chat 1](chat1.png)
 ![Chat 2](chat2.png)
+![Chat 2](chat3.png)
